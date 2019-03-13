@@ -9,7 +9,7 @@ end
 defmodule Bitflyer.WebsocketClient do
   @url Application.get_env(:bitcoin_data_collector, :bitflyer_lightning_jsonrpc_endpoint)
 
-  use Task
+  use Task, restart: :permanent
 
   alias Bitflyer.JsonRPC2
   alias Bitflyer.SubscribeParams
@@ -23,20 +23,26 @@ defmodule Bitflyer.WebsocketClient do
     Socket.connect @url
   end
 
-  def subscribe({:ok, socket}) do
+  def subscribe({:ok, socket}, channel) do
     IO.puts "<---------- connect OK ---------->"
     IO.inspect socket
     IO.puts "<---------- subscribe send start ---------->"
-    jsonrpc2 = %JsonRPC2{jsonrpc: "2.0", method: "subscribe", params: %SubscribeParams{channel: ""}}
+    jsonrpc2 = %JsonRPC2{jsonrpc: "2.0", method: "subscribe", params: %SubscribeParams{channel: channel}}
+
+    Poison.encode!(jsonrpc2)
+    |> IO.inspect
+
+    Socket.Web.close socket
   end
 
-  def subscribe({:error, message}) do
+  def subscribe({:error, message}, _) do
     IO.puts "<---------- connect NG ---------->"
     IO.inspect "Error: " <> message
+    raise message
   end
 
-  def run(args) when is_nil(args) do
+  def run(args) do
     connect()
-    |> subscribe
+    |> subscribe(args[:channel])
   end
 end

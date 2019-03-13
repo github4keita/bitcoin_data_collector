@@ -12,7 +12,7 @@ defmodule BitcoinDataCollector.Application do
       # Starts a worker by calling: BitcoinDataCollector.Worker.start_link(arg)
       # {BitcoinDataCollector.Worker, arg}
       {Bitflyer.RealtimeWorker, nil},
-      {Bitflyer.WebsocketClient, nil}
+      {Bitflyer.WebsocketClient, channel: "lightning_ticker_BTC_JPY"}
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html
