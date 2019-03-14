@@ -1,5 +1,5 @@
-defmodule Bitflyer.JsonRPC2 do
-  defstruct [:jsonrpc, :method, :params, :result, :id]
+defmodule Bitflyer.Subscribe do
+  defstruct [:method, :params]
 end
 
 defmodule Bitflyer.SubscribeParams do
@@ -9,9 +9,9 @@ end
 defmodule Bitflyer.WebsocketClient do
   @url Application.get_env(:bitcoin_data_collector, :bitflyer_lightning_jsonrpc_endpoint)
 
-  use Task, restart: :permanent
+  use Task, restart: :transient
 
-  alias Bitflyer.JsonRPC2
+  alias Bitflyer.Subscribe
   alias Bitflyer.SubscribeParams
 
   def start_link(args) do
@@ -23,26 +23,48 @@ defmodule Bitflyer.WebsocketClient do
     Socket.connect @url
   end
 
-  def subscribe({:ok, socket}, channel) do
-    IO.puts "<---------- connect OK ---------->"
-    IO.inspect socket
-    IO.puts "<---------- subscribe send start ---------->"
-    jsonrpc2 = %JsonRPC2{jsonrpc: "2.0", method: "subscribe", params: %SubscribeParams{channel: channel}}
-
-    Poison.encode!(jsonrpc2)
-    |> IO.inspect
-
-    Socket.Web.close socket
+  def check_result(:ok, name) do
+    IO.puts "<---------- #{name} OK ---------->"
   end
 
-  def subscribe({:error, message}, _) do
-    IO.puts "<---------- connect NG ---------->"
-    IO.inspect "Error: " <> message
+  def check_result({:ok, result}, name) do
+    IO.puts "<---------- #{name} OK ---------->"
+    result
+  end
+
+  def check_result({:error, message}, name) do
+    IO.puts "<---------- #{name} NG ---------->"
+    IO.puts "Error: " <> message
     raise message
+  end
+
+  def send_text(data, socket) do
+    Socket.Web.send(socket, {:text, data})
+  end
+
+  def recv(socket) do
+    Socket.Web.recv(socket)
+    |> IO.inspect
+
+    recv(socket)
+  end
+
+  def subscribe(socket, channel) do
+    IO.puts "<---------- subscribe send start ---------->"
+    jsonrpc2 = %Subscribe{method: "subscribe", params: %SubscribeParams{channel: channel}}
+
+    Poison.encode!(jsonrpc2)
+    |> send_text(socket)
+    |> check_result("send")
+
+    socket
   end
 
   def run(args) do
     connect()
+    |> check_result("connect")
     |> subscribe(args[:channel])
+    |> recv
+    # recv(socket)
   end
 end
