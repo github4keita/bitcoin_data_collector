@@ -18,53 +18,86 @@ defmodule Bitflyer.WebsocketClient do
     Task.start_link(__MODULE__, :run, [args])
   end
 
-  def connect do
-    IO.puts "<---------- connect start ---------->"
-    Socket.connect @url
+  def response_match({:ok, data}) do
+    IO.puts "<---------- response OK ---------->"
+    data
   end
 
-  def check_result(:ok, name) do
-    IO.puts "<---------- #{name} OK ---------->"
-  end
-
-  def check_result({:ok, result}, name) do
-    IO.puts "<---------- #{name} OK ---------->"
-    result
-  end
-
-  def check_result({:error, message}, name) do
-    IO.puts "<---------- #{name} NG ---------->"
+  def response_match({:error, message}, socket \\ nil) do
+    IO.puts "<---------- response NG ---------->"
     IO.puts "Error: " <> message
+    close(socket)
     raise message
   end
 
+  def response_match(:ok, _) do
+    IO.puts "<---------- response OK ---------->"
+  end
+
+  def opcode_match({:close, _, _}, socket) do
+    IO.puts "<---------- opcode: close ---------->"
+    close(socket)
+    nil
+  end
+
+  def opcode_match({:ping, _}, socket) do
+    IO.puts "<---------- opcode: ping ---------->"
+    send_pong(socket)
+    nil
+  end
+
+  def opcode_match({:text, data}, _) do
+    IO.puts "<---------- opcode: text ---------->"
+    data
+  end
+
+  def connect do
+    IO.puts "<---------- connect start ---------->"
+    Socket.connect(@url)
+    |> response_match
+  end
+
+  def close(socket) when is_nil(socket), do: nil
+
+  def close(socket) do
+    IO.puts "<---------- connection close ---------->"
+    Socket.Web.close socket
+  end
+
   def send_text(data, socket) do
-    Socket.Web.send(socket, {:text, data})
+    IO.puts "<---------- send text ---------->"
+    IO.puts data
+    Socket.Web.send socket, {:text, data}
+  end
+
+  def send_pong(socket) do
+    IO.puts "<---------- send pong ---------->"
+    Socket.Web.send socket, {:pong, ""}
   end
 
   def recv(socket) do
     Socket.Web.recv(socket)
+    |> response_match
+    |> opcode_match(socket)
     |> IO.inspect
 
     recv(socket)
   end
 
   def subscribe(socket, channel) do
-    IO.puts "<---------- subscribe send start ---------->"
+    IO.puts "<---------- subscribe start ---------->"
     jsonrpc2 = %Subscribe{method: "subscribe", params: %SubscribeParams{channel: channel}}
 
     Poison.encode!(jsonrpc2)
     |> send_text(socket)
-    |> check_result("send")
+    |> response_match(socket)
 
     socket
   end
 
   def run(args) do
     connect()
-    |> check_result("connect")
     |> subscribe(args[:channel])
     |> recv
-    # recv(socket)
   end
 end
