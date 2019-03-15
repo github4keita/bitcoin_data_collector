@@ -13,6 +13,7 @@ defmodule Bitflyer.WebsocketClient do
 
   alias Bitflyer.Subscribe
   alias Bitflyer.SubscribeParams
+  alias Bitflyer.Ticker
 
   def start_link(args) do
     Task.start_link(__MODULE__, :run, [args])
@@ -30,20 +31,18 @@ defmodule Bitflyer.WebsocketClient do
     raise message
   end
 
-  def response_match(:ok, _) do
-    IO.puts "<---------- response OK ---------->"
-  end
+  def response_match(:ok, _), do: IO.puts "<---------- response OK ---------->"
 
   def opcode_match({:close, _, _}, socket) do
     IO.puts "<---------- opcode: close ---------->"
     close(socket)
-    nil
+    raise "server closing"
   end
 
   def opcode_match({:ping, _}, socket) do
     IO.puts "<---------- opcode: ping ---------->"
     send_pong(socket)
-    nil
+    "[]"
   end
 
   def opcode_match({:text, data}, _) do
@@ -58,7 +57,6 @@ defmodule Bitflyer.WebsocketClient do
   end
 
   def close(socket) when is_nil(socket), do: nil
-
   def close(socket) do
     IO.puts "<---------- connection close ---------->"
     Socket.Web.close socket
@@ -75,10 +73,30 @@ defmodule Bitflyer.WebsocketClient do
     Socket.Web.send socket, {:pong, ""}
   end
 
+  def extract([]), do: nil
+  def extract(%{"jsonrpc" => "2.0", "method" => "channelMessage", "params" => %{"message" => m}}), do: m
+
+  def struct_from_map(nil, _), do: nil
+  def struct_from_map(a_map, as: a_struct) do
+    keys = Map.keys(a_struct) |> Enum.filter(fn x -> x != :__struct__ end)
+    m_map = for key <- keys, into: %{} do
+              value = Map.get(a_map, key) || Map.get(a_map, to_string(key))
+              {key, value}
+            end
+
+    a_struct = Map.merge(a_struct, m_map)
+    a_struct
+  end
+
+  def convert_struct(t), do: struct_from_map(t, as: %Ticker{})
+
   def recv(socket) do
     Socket.Web.recv(socket)
     |> response_match
     |> opcode_match(socket)
+    |> Poison.decode!
+    |> extract
+    |> convert_struct
     |> IO.inspect
 
     recv(socket)
